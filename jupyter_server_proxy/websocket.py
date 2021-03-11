@@ -98,6 +98,50 @@ class WebSocketHandlerMixin(websocket.WebSocketHandler):
         else:
             await maybe_future(super().get(*args, **kwargs))
 
+    def check_origin(self, origin_to_satisfy_tornado=""):
+        """Check Origin for cross-site API requests, including websockets
+
+        Copied from WebSocket with changes:
+
+        - allow unspecified host/origin (e.g. scripts)
+        - allow token-authenticated requests
+        """
+        if self.allow_origin == '*':
+            return True
+
+        host = self.request.headers.get("Host")
+        origin = self.request.headers.get("Origin")
+
+        # If no header is provided, let the request through.
+        # Origin can be None for:
+        # - same-origin (IE, Firefox)
+        # - Cross-site POST form (IE, Firefox)
+        # - Scripts
+        # The cross-site POST (XSRF) case is handled by tornado's xsrf_token
+        if origin is None or host is None:
+            return True
+
+        origin = origin.lower()
+        origin_host = urlparse(origin).netloc
+
+        # OK if origin matches host
+        if origin_host == host:
+            return True
+
+        # Check CORS headers
+        if self.allow_origin:
+            allow = self.allow_origin == origin
+        elif self.allow_origin_pat:
+            allow = bool(self.allow_origin_pat.match(origin))
+        else:
+            # No CORS headers deny the request
+            allow = False
+        if not allow:
+            self.log.warning("Blocking Cross Origin API request for %s.  Origin: %s, Host: %s",
+                self.request.path, origin, host,
+            )
+        return allow
+
 
 def setup_handlers(web_app):
     host_pattern = '.*$'
